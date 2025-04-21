@@ -1,0 +1,179 @@
+import logging;
+from datetime import timedelta
+from ingestion.SqlDbEtl import SQL_DB_ETL
+from utils.utils import prepare_apy_for_sql
+
+class Hydration:
+
+    def __init__(self, sql_db: SQL_DB_ETL):
+        self.ChainName = 'Hydration'
+        self.SqlDb = sql_db
+    
+    def sync_dim_tokens_hydration_price_task(self, last_run, end_time):
+        if not last_run:
+            row = self.SqlDb.execute_sql(
+                "SELECT MIN(created_at) FROM Hydration_price",
+                fetch=True, use_remote=True
+            )[0][0]
+            if not row:
+                logging.info("[sync_dim_tokens_hydration_price] 无远程 Hydration_price，退出")
+                return 0, None
+            last_run = row - timedelta(seconds=1)
+
+        rows = self.SqlDb.execute_sql(
+            """
+            SELECT p.id,p.batch_id,p.asset_id,p.symbol,p.price_usdt,p.created_at
+            FROM Hydration_price p
+            WHERE p.created_at > %s AND p.created_at <= %s
+            """,
+            (last_run, end_time), fetch=True, use_remote=True
+        )
+
+        res = self.SqlDb.execute_sql(
+            "SELECT chain_id FROM dim_chains WHERE name=%s",
+            (self.ChainName,), fetch=True, use_remote=False
+        )
+        if not res:
+            logging.warning(f"[sync_dim_tokens_hydration_price_task] 未找到 dim_chains: {self.ChainName}")
+            return 0, None
+        chain_id = res[0][0]
+
+        processed = set()
+        fact_token_daily_stats_processed = set()
+        count = 0
+
+        for id,batch_id,asset_id,symbol,price_usdt,created_at in rows:
+            asset_type_id = 1
+            if id and id not in processed:
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO dim_tokens (chain_id,address,symbol,name,decimals,asset_type_id)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                      symbol=VALUES(symbol),name=VALUES(name),decimals=VALUES(decimals),
+                      asset_type_id=VALUES(asset_type_id),updated_at=NOW()
+                    """,
+                    (chain_id, asset_id, symbol, symbol, 18, asset_type_id), use_remote=False
+                )
+                
+                token_id = self.SqlDb.execute_sql(
+                    "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
+                    (chain_id, asset_id), fetch=True, use_remote=False
+                )[0][0]
+
+                date = created_at.date()
+                fact_token_daily_stats_key = (token_id, date)
+                if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+                    # 插入 fact_token_daily_stats
+                    self.SqlDb.execute_sql(
+                        """
+                        INSERT INTO fact_token_daily_stats
+                        (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
+                        VALUES (%s, %s, 0, 0, 0, %s, %s)
+                        ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd)
+                        """,
+                        (token_id, date, price_usdt, created_at), use_remote=False
+                    )
+                    fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+                    count += 1
+                processed.add(id)
+
+
+        return count, end_time
+    
+    def sync_dim_tokens_hydration_data_task(self, last_run, end_time):
+        if not last_run:
+            row = self.SqlDb.execute_sql(
+                "SELECT MIN(created_at) FROM hydration_data",
+                fetch=True, use_remote=True
+            )[0][0]
+            if not row:
+                logging.info("[sync_dim_tokens_hydration_data] 无远程 Hydration_data，退出")
+                return 0, None
+            last_run = row - timedelta(seconds=1)
+
+        rows = self.SqlDb.execute_sql(
+            """
+            SELECT p.id,p.batch_id,p.asset_id,p.symbol,p.farm_apr, p.pool_apr, p.total_apr, p.tvl_usd,
+            p.volume_usd, p.timestamp, p.created_at
+            FROM hydration_data p
+            WHERE p.created_at > %s AND p.created_at <= %s
+            """,
+            (last_run, end_time), fetch=True, use_remote=True
+        )
+
+        res = self.SqlDb.execute_sql(
+            "SELECT chain_id FROM dim_chains WHERE name=%s",
+            (self.ChainName,), fetch=True, use_remote=False
+        )
+        if not res:
+            logging.warning(f"[sync_dim_tokens_hydration_data_task] 未找到 dim_chains: {self.ChainName}")
+            return 0, None
+        chain_id = res[0][0]
+
+        fact_token_daily_stats_processed = set()
+        fact_yield_stats_processed = set()
+        processed = set()
+        asset_type_id = 1
+        
+        for id,batch_id,asset_id,symbol,farm_apr,pool_apr,total_apr,tvl_usd,volume_usd,timestamp,created_at in rows:         
+            if id and id not in processed:
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO dim_tokens (chain_id,address,symbol,name,decimals,asset_type_id)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                      symbol=VALUES(symbol),name=VALUES(name),decimals=VALUES(decimals),
+                      asset_type_id=VALUES(asset_type_id),updated_at=NOW()
+                    """,
+                    (chain_id, asset_id, symbol, symbol, 18, asset_type_id), use_remote=False
+                )
+
+                token_id = self.SqlDb.execute_sql(
+                    "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
+                    (chain_id, asset_id), fetch=True, use_remote=False
+                )[0][0]
+
+                date = created_at.date() 
+                fact_token_daily_stats_key = (token_id, date)
+                if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+                    # 插入 fact_token_daily_stats
+                    self.SqlDb.execute_sql(
+                        """
+                        INSERT INTO fact_token_daily_stats
+                        (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
+                        VALUES (%s, %s, 0, %s, 0, %s, %s)
+                        ON DUPLICATE KEY UPDATE volume_usd = VALUES(volume_usd),
+                        created_at = VALUES(created_at)
+                        """,
+                        (token_id, date, volume_usd, 0, created_at), use_remote=False
+                    )
+                    fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+                
+                # add yield stats
+                pool_address = asset_id
+                fact_yield_stats_key = (token_id, pool_address, date)
+                if fact_yield_stats_key not in fact_yield_stats_processed:
+                    n = 365
+                    if not total_apr:
+                        apy = 0
+                    else:
+                        apy = prepare_apy_for_sql(total_apr/100, n)
+                    return_type_id = 1
+                    tvl = 0
+                    # 插入 fact_yield_stats
+                    self.SqlDb.execute_sql(
+                        """
+                        INSERT INTO fact_yield_stats
+                        (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE apy = VALUES(apy),
+                        tvl_usd = VALUES(tvl_usd)
+                        """,
+                        (token_id, return_type_id, pool_address, date, apy or 0, tvl or 0, tvl_usd or 0, created_at), use_remote=False
+                    )
+                    fact_yield_stats_processed.add(fact_yield_stats_key)
+
+                processed.add(id)
+        return len(fact_token_daily_stats_processed) + len(fact_yield_stats_processed), end_time
+        
