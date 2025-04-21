@@ -28,3 +28,21 @@ def prepare_apy_for_sql(apr, n, max_apy=Decimal('99999999.99')) -> float:
     apy_percent = apy_percent.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     return float(apy_percent)
+
+def calculate_tvl(amount_token0, amount_token1, sqrt_price, price_token0=None, price_token1=None):
+    # 如果已知两个 token 的价格，直接计算 TVL
+    if price_token0 is not None and price_token1 is not None:
+        return amount_token0 * price_token0 + amount_token1 * price_token1
+
+    # 如果只知道一个 token 的价格 + sqrt_price，则推算另一个
+    price_ratio = (sqrt_price / (2 ** 96)) ** 2
+
+    if price_token0 is not None:
+        price_token1 = price_token0 * price_ratio
+    elif price_token1 is not None:
+        price_token0 = price_token1 / price_ratio
+    else:
+        raise ValueError("At least one token price must be known.")
+
+    tvl = amount_token0 * price_token0 + amount_token1 * price_token1
+    return tvl
