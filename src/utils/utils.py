@@ -1,4 +1,7 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP,getcontext
+
+# 设置精度
+getcontext().prec = 50
 
 def prepare_apy_for_sql(apr, n, max_apy=Decimal('99999999.99')) -> float:
     """
@@ -29,7 +32,36 @@ def prepare_apy_for_sql(apr, n, max_apy=Decimal('99999999.99')) -> float:
 
     return float(apy_percent)
 
-def calculate_tvl(amount_token0, amount_token1, sqrt_price, price_token0=None, price_token1=None):
+
+def calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals):
+    # 将整数数量转换为实际数量（根据 decimals）
+    real_amount_token0 = Decimal(amount_token0) / (Decimal(10) ** token0_decimals)
+    real_amount_token1 = Decimal(amount_token1) / (Decimal(10) ** token1_decimals)
+
+    # 估算 price
+    price = Decimal(sqrt_price)
+
+    # 默认 token0 价格为 1 USD，计算 token1 价格
+    token0_price = Decimal(1)
+    token1_price = price * token0_price
+
+    tvl = real_amount_token0 * token0_price + real_amount_token1 * token1_price
+    return float(tvl)
+
+
+# def calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals):
+#     amount_token0 = Decimal(str(amount_token0)) / (Decimal(10) ** token0_decimals)
+#     amount_token1 = Decimal(str(amount_token1)) / (Decimal(10) ** token1_decimals)
+#     sqrt_price = Decimal(str(sqrt_price))
+
+#     P = sqrt_price ** 2
+#     estimated_token0_price = Decimal("1.0")
+#     estimated_token1_price = P * estimated_token0_price
+
+#     tvl = amount_token0 * estimated_token0_price + amount_token1 * estimated_token1_price
+#     return float(tvl)
+
+def calculate_tvl_usd(amount_token0, amount_token1, sqrt_price, price_token0=None, price_token1=None):
     # 如果已知两个 token 的价格，直接计算 TVL
     if price_token0 is not None and price_token1 is not None:
         return amount_token0 * price_token0 + amount_token1 * price_token1

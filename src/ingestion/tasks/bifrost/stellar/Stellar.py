@@ -1,7 +1,8 @@
 import logging;
 from datetime import timedelta
+from re import T
 from ingestion.SqlDbEtl import SQL_DB_ETL
-from utils.utils import calculate_tvl
+from utils.utils import calculate_tvl,prepare_apy_for_sql
 
 class Stellar:
 
@@ -24,10 +25,10 @@ class Stellar:
         rows = self.SqlDb.execute_sql(
 
             """
-            SELECT p.token0_id,p.token0_symbolbol,p.token0_name,p.token0_decimals,
-                   p.token1_id,p.token1_symbolbol,p.token1_name,p.token1_decimals,
+            SELECT p.token0_id,p.token0_symbol,p.token0_name,p.token0_decimals,
+                   p.token1_id,p.token1_symbol,p.token1_name,p.token1_decimals,
                    p.volume_usd_current, p.pool_id, p.tx_count, p.amount_token0, p.amount_token1, 
-                   p.sqrt_price, p.created_at
+                   p.sqrt_price, p.final_apr, p.created_at
             FROM pool_data p
             WHERE p.created_at > %s AND p.created_at <= %s
             """,
@@ -39,7 +40,7 @@ class Stellar:
         fact_token_daily_stats_processed = set()
         fact_yield_stats_processed = set()
 
-        for token0_id,token0_symbol,token0_name,token0_decimals,token1_id,token1_symbol,token1_name,token1_decimals,volume_usd_current,pool_id,amount_token0, amount_token1, sqrt_price,created_at in rows:
+        for token0_id,token0_symbol,token0_name,token0_decimals,token1_id,token1_symbol,token1_name,token1_decimals,volume_usd_current,pool_id,tx_count,amount_token0, amount_token1, sqrt_price,final_apr,created_at in rows:
             res = self.SqlDb.execute_sql(
                 "SELECT chain_id FROM dim_chains WHERE name=%s",
                 (self.ChainName,), fetch=True, use_remote=False
@@ -51,6 +52,11 @@ class Stellar:
 
             asset_type_id = 1
             date = created_at.date()
+            if not final_apr:
+                apy = 0
+            else:
+                apy = prepare_apy_for_sql(final_apr/100, 365)
+            
             # token0
             if token0_id and token0_id not in processed:
                 self.SqlDb.execute_sql(
@@ -68,7 +74,7 @@ class Stellar:
                     "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
                     (chain_id, token0_id), fetch=True, use_remote=False
                 )[0][0]
-
+                
                 fact_token_daily_stats_key = (tokenID0, date)
                 if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
                     # 插入 fact_token_daily_stats
@@ -76,10 +82,10 @@ class Stellar:
                         """
                         INSERT INTO fact_token_daily_stats
                         (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
-                        VALUES (%s, %s, 0, %s, 0, 0, %s)
+                        VALUES (%s, %s, 0, %s, %s, 0, %s)
                         ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume_usd = VALUES(volume_usd)
                         """,
-                        (tokenID0, date, volume_usd_current, created_at), use_remote=False
+                        (tokenID0, date, volume_usd_current, tx_count, created_at), use_remote=False
                     )
                     fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
                 
@@ -87,16 +93,19 @@ class Stellar:
                 fact_yield_stats_key = (tokenID0, token0_id, date)
                 if fact_yield_stats_key not in fact_yield_stats_processed:
                 
-                    tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price)
+                    tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
+                   
+                    print(f"Swap sync_stellar_dim_tokens_task TVL: {tvl}")
+                    
                     # 插入 fact_yield_stats
                     self.SqlDb.execute_sql(
                         """
                         INSERT INTO fact_yield_stats
                         (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
+                        ON DUPLICATE KEY UPDATE apy = VALUES(apy), tvl = VALUES(tvl), tvl_usd = VALUES(tvl_usd)
                         """,
-                        (tokenID0, return_type_id, pool_id, date, 0, tvl or 0, 0, created_at), use_remote=False
+                        (tokenID0, return_type_id, pool_id, date, apy, tvl, 0, created_at), use_remote=False
                     )
                     fact_yield_stats_processed.add(fact_yield_stats_key)
                 
@@ -129,10 +138,10 @@ class Stellar:
                         """
                         INSERT INTO fact_token_daily_stats
                         (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
-                        VALUES (%s, %s, 0, %s, 0, 0, %s)
+                        VALUES (%s, %s, 0, %s, %s, 0, %s)
                         ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume_usd = VALUES(volume_usd)
                         """,
-                        (tokenID1, date, volume_usd_current, created_at), use_remote=False
+                        (tokenID1, date, volume_usd_current, tx_count, created_at), use_remote=False
                     )
                     fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
                 
@@ -140,7 +149,7 @@ class Stellar:
                 fact_yield_stats_key = (tokenID1, token1_id, date)
                 if fact_yield_stats_key not in fact_yield_stats_processed:
                 
-                    tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price)
+                    tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
                     # 插入 fact_yield_stats
                     self.SqlDb.execute_sql(
                         """
@@ -149,7 +158,7 @@ class Stellar:
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON DUPLICATE KEY UPDATE tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
                         """,
-                        (tokenID1, return_type_id, pool_id, date, 0, tvl or 0, 0, created_at), use_remote=False
+                        (tokenID1, return_type_id, pool_id, date, apy, tvl, 0, created_at), use_remote=False
                     )
                     fact_yield_stats_processed.add(fact_yield_stats_key)
                 

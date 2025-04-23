@@ -36,18 +36,18 @@ if __name__ == "__main__":
     # logging.info("立即执行 sync_bifrost_to_fact_yield_stats_task")
     # sql_db.etl_job(Bifrost(sql_db).sync_bifrost_to_fact_yield_stats_task, 'sync_bifrost_to_fact_yield_stats_task', start_time, end_time)
     
-    # logging.info("立即执行 sync_dim_tokens_apy_from_site_task")
-    # sql_db.etl_job(Bifrost(sql_db).sync_dim_tokens_apy_from_site_task, 'sync_dim_tokens_apy_from_site_task', start_time, end_time)
-    # logging.info("立即执行 sync_dim_tokens_apy_from_staking_task")
-    # sql_db.etl_job(Bifrost(sql_db).sync_dim_tokens_apy_from_staking_task, 'sync_dim_tokens_apy_from_staking_task', start_time, end_time)
+    logging.info("立即执行 sync_dim_tokens_apy_from_site_task")
+    sql_db.etl_job(Bifrost(sql_db).sync_dim_tokens_apy_from_site_task, 'sync_dim_tokens_apy_from_site_task', start_time, end_time)
+    logging.info("立即执行 sync_dim_tokens_apy_from_staking_task")
+    sql_db.etl_job(Bifrost(sql_db).sync_dim_tokens_apy_from_staking_task, 'sync_dim_tokens_apy_from_staking_task', start_time, end_time)
     
-    # logging.info("立即执行 sync_stellar_dim_tokens_task")
-    # sql_db.etl_job(Stellar(sql_db).sync_stellar_dim_tokens_task, 'sync_stellar_dim_tokens_task', start_time, end_time)
+    logging.info("立即执行 sync_stellar_dim_tokens_task")
+    sql_db.etl_job(Stellar(sql_db).sync_stellar_dim_tokens_task, 'sync_stellar_dim_tokens_task', start_time, end_time)
     
-    # logging.info("立即执行 sync_dim_tokens_hydration_price_task")
-    # sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_price_task, 'sync_dim_tokens_hydration_price_task', start_time, end_time)
-    # logging.info("立即执行 sync_dim_tokens_hydration_data_task")
-    # sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_data_task, 'sync_dim_tokens_hydration_data_task', start_time, end_time)
+    logging.info("立即执行 sync_dim_tokens_hydration_price_task")
+    sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_price_task, 'sync_dim_tokens_hydration_price_task', start_time, end_time)
+    logging.info("立即执行 sync_dim_tokens_hydration_data_task")
+    sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_data_task, 'sync_dim_tokens_hydration_data_task', start_time, end_time)
 
     # 定时调度
     scheduler = BlockingScheduler(timezone="UTC")
