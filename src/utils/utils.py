@@ -1,4 +1,5 @@
 from decimal import Decimal, ROUND_HALF_UP,getcontext
+import logging
 
 # 设置精度
 getcontext().prec = 50
@@ -25,7 +26,7 @@ def prepare_apy_for_sql(apr, n, max_apy=Decimal('99999999.99')) -> float:
     apy_percent = apy * 100
 
     if apy_percent > max_apy:
-        print(f"⚠️ APY 超出最大范围，截断为 {max_apy}")
+        logging.warning(f"⚠️ APY 超出最大范围，截断为 {max_apy}")
         apy_percent = max_apy
 
     apy_percent = apy_percent.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)

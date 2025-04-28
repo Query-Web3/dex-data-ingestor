@@ -95,7 +95,7 @@ class Stellar:
                 
                     tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
                    
-                    print(f"Swap sync_stellar_dim_tokens_task TVL: {tvl}")
+                    logging.info(f"Swap sync_stellar_dim_tokens_task TVL: {tvl}")
                     
                     # 插入 fact_yield_stats
                     self.SqlDb.execute_sql(
