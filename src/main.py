@@ -29,7 +29,7 @@ if __name__ == "__main__":
     # sql_db = SQL_DB_ETL(local_config, remote_config)
 
     # ten_days_ago = datetime.now(timezone.utc) - timedelta(days=10)
-    start_time = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    start_time = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     end_time = datetime.now(timezone.utc)
 
     # 立即执行两次
@@ -62,3 +62,4 @@ if __name__ == "__main__":
     
     logging.info("调度启动：每小时整点运行同步任务")
     scheduler.start()
+    logging.info("************************ 调度完成 ************************");

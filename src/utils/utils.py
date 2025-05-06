@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP,getcontext
 import logging
+from dateutil.relativedelta import relativedelta
 
 # 设置精度
 getcontext().prec = 50
@@ -79,3 +80,32 @@ def calculate_tvl_usd(amount_token0, amount_token1, sqrt_price, price_token0=Non
 
     tvl = amount_token0 * price_token0 + amount_token1 * price_token1
     return tvl
+
+def last_quarter(date):
+    if not date:
+        return None
+    return date - relativedelta(months=3)       
+
+def last_year(date):
+    if not date:
+        return None
+    # return date - relativedelta(years=1)
+    return date - relativedelta(days=14)
+
+def calculate_yoy(current, previous_year):
+    """
+    计算同比增长率（YoY）
+    - 如果参数无效则返回 None
+    """
+    if current is None or previous_year is None or previous_year == 0:
+        return None
+    return round((current - previous_year) / previous_year * 100, 2)
+
+def calculate_qoq(current, previous_quarter):
+    """
+    计算环比增长率（QoQ）
+    - 如果参数无效则返回 None
+    """
+    if current is None or previous_quarter is None or previous_quarter == 0:
+        return None
+    return round((current - previous_quarter) / previous_quarter * 100, 2)

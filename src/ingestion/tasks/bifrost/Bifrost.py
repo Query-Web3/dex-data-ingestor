@@ -74,6 +74,16 @@ class Bifrost:
         if not end_time:
             end_time = datetime.now(timezone.utc)
         
+        res = self.SqlDb.execute_sql(
+            "SELECT chain_id FROM dim_chains WHERE name=%s",
+            (self.ChainName,), fetch=True, use_remote=False
+        )
+        if not res:
+            logging.warning(f"[sync_dim_tokens_site] 未找到 dim_chains: {self.ChainName}")
+            return 0, None
+        chain_id = res[0][0]
+        logging.info(f"[sync_dim_tokens_site] last_run: {last_run}, end_time: {end_time}")
+        
         rows = self.SqlDb.execute_sql(
             "SELECT Asset, tvl, tvm, holders, apy, apyBase, apyReward, totalIssuance, created_at FROM Bifrost_site_table "
             "WHERE created_at > %s AND created_at <= %s",
@@ -91,7 +101,7 @@ class Bifrost:
             if asset_lower in {'tvl', 'addresses', 'revenue'}:
                 continue
 
-            chain_id = 4
+            # chain_id = 4
             asset_type_id = 1
             symbol = asset
             address = asset
@@ -109,12 +119,14 @@ class Bifrost:
                 ON DUPLICATE KEY UPDATE updated_at=NOW()
                 """,
                 (chain_id, address, symbol, name, decimals, asset_type_id), use_remote=False
-            )
+            ) 
+            logging.info(f"[sync_dim_tokens_site] 插入或更新 dim_tokens: {asset}")
             # 获取 token_id
             token_id = self.SqlDb.execute_sql(
                 "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
                 (chain_id, address), fetch=True, use_remote=False
             )[0][0]
+            logging.info(f"[sync_dim_tokens_site] 获取 token_id: {token_id}")
 
             fact_token_daily_stats_key = (token_id, date)
             if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
@@ -128,6 +140,7 @@ class Bifrost:
                     """,
                     (token_id, date, created_at), use_remote=False
                 )
+                logging.info(f"[sync_dim_tokens_site] 插入 fact_token_daily_stats: {token_id}")
                 fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
                 count += 1
         
@@ -143,8 +156,9 @@ class Bifrost:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
                     """,
-                    (token_id, return_type_id, pool_address, date, apy or 0, tvl or 0, tvl_usd or 0, created_at), use_remote=False
+                    (token_id, return_type_id, pool_address, date, apy or 0, tvl or 0, tvl or 0, created_at), use_remote=False
                 )
+                logging.info(f"[sync_dim_tokens_site] 插入 fact_yield_stats: {token_id}")
                 fact_yield_stats_processed.add(fact_yield_stats_key)
                 count1 += 1
         return count + count1, end_time
@@ -163,13 +177,24 @@ class Bifrost:
                 return 0, None
             last_run = row - timedelta(seconds=1)
 
+        res = self.SqlDb.execute_sql(
+            "SELECT chain_id FROM dim_chains WHERE name=%s",
+            (self.ChainName,), fetch=True, use_remote=False
+        )
+        if not res:
+            logging.warning(f"[sync_dim_tokens_staking] 未找到 dim_chains: {self.ChainName}")
+            return 0, None
+        chain_id = res[0][0]
+
         rows = self.SqlDb.execute_sql(
             "SELECT symbol, contractAddress, apr, fee, price, exchangeRatio, supply, created_at FROM Bifrost_staking_table "
             "WHERE created_at > %s AND created_at <= %s",
             (last_run, end_time), fetch=True, use_remote=True
         )
 
-        chain_id = 4
+        logging.info(f"[sync_dim_tokens_staking] 获取 staking 数据: {rows}")
+
+        # chain_id = 4
         asset_type_id = 1
         decimals = 18
         return_type_id = 1
@@ -182,21 +207,26 @@ class Bifrost:
                 continue
 
             date = created_at.date()
+
             # 插入或更新 dim_tokens
+            # 使用 symbol 作为 address
             self.SqlDb.execute_sql(
                 """
                 INSERT INTO dim_tokens (chain_id,address,symbol,name,decimals,asset_type_id)
                 VALUES (%s,%s,%s,%s,%s,%s)
                 ON DUPLICATE KEY UPDATE updated_at=NOW()
                 """,
-                (chain_id, contractAddress, symbol, symbol, decimals, asset_type_id), use_remote=False
+                (chain_id, symbol, symbol, symbol, decimals, asset_type_id), use_remote=False
             )
+
+            logging.info(f"[sync_dim_tokens_staking] 插入或更新 dim_tokens: {symbol}")
 
             # 获取 token_id
             token_id = self.SqlDb.execute_sql(
                 "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
-                (chain_id, contractAddress), fetch=True, use_remote=False
+                (chain_id, symbol), fetch=True, use_remote=False
             )[0][0]
+            logging.info(f"[sync_dim_tokens_staking] 获取 token_id: {token_id}")
 
             fact_token_daily_stats_processed = set()
             fact_token_daily_stats_key = (token_id, date)
@@ -211,6 +241,7 @@ class Bifrost:
                     """,
                     (token_id, date, price, created_at), use_remote=False
                 )
+                logging.info(f"[sync_dim_tokens_staking] 插入 fact_token_daily_stats: {token_id}")
                 fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
                 count += 1
         
@@ -237,8 +268,9 @@ class Bifrost:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE apy = VALUES(apy), tvl = VALUES(tvl), tvl_usd = VALUES(tvl_usd)
                     """,
-                    (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at), use_remote=False
+                    (token_id, return_type_id, pool_address, date, apy, tvl, tvl, created_at), use_remote=False
                 )
+                logging.info(f"[sync_dim_tokens_staking] 插入 fact_yield_stats: {token_id}")
                 fact_yield_stats_processed.add(fact_yield_stats_key)
                 count1 += 1
 

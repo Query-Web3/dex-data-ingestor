@@ -1,7 +1,7 @@
 import logging;
 from datetime import timedelta
 from ingestion.SqlDbEtl import SQL_DB_ETL
-from utils.utils import prepare_apy_for_sql
+from utils.utils import calculate_yoy, calculate_qoq, last_quarter, last_year, prepare_apy_for_sql
 
 class Hydration:
 
@@ -53,12 +53,13 @@ class Hydration:
                       symbol=VALUES(symbol),name=VALUES(name),decimals=VALUES(decimals),
                       asset_type_id=VALUES(asset_type_id),updated_at=NOW()
                     """,
-                    (chain_id, asset_id, symbol, symbol, 18, asset_type_id), use_remote=False
+                    (chain_id, symbol, symbol, symbol, 18, asset_type_id), use_remote=False
                 )
+                logging.info(f"Hydration sync_dim_tokens_hydration_price_task 插入或更新 dim_tokens: {symbol}")
                 
                 token_id = self.SqlDb.execute_sql(
                     "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
-                    (chain_id, asset_id), fetch=True, use_remote=False
+                    (chain_id, symbol), fetch=True, use_remote=False
                 )[0][0]
 
                 date = created_at.date()
@@ -74,6 +75,7 @@ class Hydration:
                         """,
                         (token_id, date, price_usdt, created_at), use_remote=False
                     )
+                    logging.info(f"Hydration sync_dim_tokens_hydration_price_task 插入 fact_token_daily_stats: {token_id}")
                     fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
                     count += 1
                 processed.add(id)
@@ -111,11 +113,23 @@ class Hydration:
             return 0, None
         chain_id = res[0][0]
 
+
+        res = self.SqlDb.execute_sql(
+            "SELECT chain_id FROM dim_chains WHERE name=%s",
+            ('Bifrost',), fetch=True, use_remote=False
+        )
+        if not res:
+            logging.warning(f"[sync_dim_tokens_hydration_price_task] 未找到 dim_chains: {self.ChainName}")
+            return 0, None
+        chain_id1 = res[0][0]
+        
+
+        # chain_id = 3
         fact_token_daily_stats_processed = set()
         fact_yield_stats_processed = set()
         processed = set()
         asset_type_id = 1
-        
+        decimals = 18
         for id,batch_id,asset_id,symbol,farm_apr,pool_apr,total_apr,tvl_usd,volume_usd,timestamp,created_at in rows:         
             if id and id not in processed:
                 self.SqlDb.execute_sql(
@@ -126,29 +140,118 @@ class Hydration:
                       symbol=VALUES(symbol),name=VALUES(name),decimals=VALUES(decimals),
                       asset_type_id=VALUES(asset_type_id),updated_at=NOW()
                     """,
-                    (chain_id, asset_id, symbol, symbol, 18, asset_type_id), use_remote=False
+                    (chain_id, symbol, symbol, symbol, decimals, asset_type_id), use_remote=False
                 )
+                logging.info(f"Hydration sync_dim_tokens_hydration_data_task 插入或更新 dim_tokens: {symbol}")
+
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO dim_tokens (chain_id,address,symbol,name,decimals,asset_type_id)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                      symbol=VALUES(symbol),name=VALUES(name),decimals=VALUES(decimals),
+                      asset_type_id=VALUES(asset_type_id),updated_at=NOW()
+                    """,
+                    (chain_id1, symbol, symbol, symbol, decimals, asset_type_id), use_remote=False
+                )
+                logging.info(f"Hydration sync_dim_tokens_hydration_data_task 插入或更新 dim_tokens: {symbol}")
 
                 token_id = self.SqlDb.execute_sql(
                     "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
-                    (chain_id, asset_id), fetch=True, use_remote=False
+                    (chain_id, symbol), fetch=True, use_remote=False
+                )[0][0]
+
+                token_id1 = self.SqlDb.execute_sql(
+                    "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
+                    (chain_id1, symbol), fetch=True, use_remote=False
                 )[0][0]
 
                 date = created_at.date() 
+                # 计算上季度和去年同期日期
+                prev_quarter = last_quarter(date)
+                prev_year = last_year(date)
+                
                 fact_token_daily_stats_key = (token_id, date)
                 if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+                    # 获取 yoy
+                    res = self.SqlDb.execute_sql("""
+                        SELECT volume FROM fact_token_daily_stats 
+                        WHERE token_id = %s AND date = %s
+                        """, (token_id, prev_year))
+
+                    volume_year = None
+                    if res and len(res) > 0 and res[0][0] is not None :
+                        volume_year = res[0][0]
+
+                    volume_yoy = calculate_yoy(volume_usd, volume_year)
+                    
+                    # 获取 qoq
+                    res = self.SqlDb.execute_sql("""
+                        SELECT volume FROM fact_token_daily_stats 
+                        WHERE token_id = %s AND date = %s
+                        """, (token_id, prev_quarter))
+
+                    volume_quarter = None
+                    if res and len(res) > 0 and res[0][0] is not None :
+                        volume_quarter = res[0][0]
+
+                    volume_qoq = calculate_qoq(volume_usd, volume_quarter)
+                    
                     # 插入 fact_token_daily_stats
                     self.SqlDb.execute_sql(
                         """
                         INSERT INTO fact_token_daily_stats
-                        (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
-                        VALUES (%s, %s, 0, %s, 0, %s, %s)
-                        ON DUPLICATE KEY UPDATE volume_usd = VALUES(volume_usd),
+                        (token_id, date, volume, volume_usd, volume_yoy, volume_qoq, txns_count, price_usd, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE volume_usd = VALUES(volume_usd), volume = VALUES(volume),
+                        volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq),
                         created_at = VALUES(created_at)
                         """,
-                        (token_id, date, volume_usd, 0, created_at), use_remote=False
+                        (token_id, date, volume_usd, volume_usd, volume_yoy, volume_qoq, 0, 0, created_at), use_remote=False
                     )
+                    logging.info(f"Hydration sync_dim_tokens_hydration_data_task 插入 fact_token_daily_stats: {token_id}")
                     fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+
+                    if not token_id1:
+                        continue
+                    
+                     # 获取 yoy
+                    res = self.SqlDb.execute_sql("""
+                        SELECT volume FROM fact_token_daily_stats 
+                        WHERE token_id = %s AND date = %s
+                        """, (token_id1, prev_year))
+
+                    volume_year1 = None
+                    if res and len(res) > 0 and res[0][0] is not None :
+                        volume_year1 = res[0][0]
+                    
+                    volume_yoy1 = calculate_yoy(volume_usd, volume_year1)
+                    
+                    # 获取 qoq
+                    res = self.SqlDb.execute_sql("""
+                        SELECT volume FROM fact_token_daily_stats 
+                        WHERE token_id = %s AND date = %s
+                        """, (token_id1, prev_quarter))
+                    
+                    volume_quarter1 = None
+                    if res and len(res) > 0 and res[0][0] is not None :
+                        volume_quarter1 = res[0][0]
+                    
+                    volume_qoq1 = calculate_qoq(volume_usd, volume_quarter1)
+
+                    # 插入 fact_token_daily_stats
+                    self.SqlDb.execute_sql(
+                        """
+                        INSERT INTO fact_token_daily_stats
+                        (token_id, date, volume, volume_usd, volume_yoy, volume_qoq, txns_count, price_usd, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE volume_usd = VALUES(volume_usd), volume = VALUES(volume),
+                        volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq),
+                        created_at = VALUES(created_at) 
+                        """,
+                        (token_id1, date, volume_usd, volume_usd, volume_yoy1, volume_qoq1, 0, 0, created_at), use_remote=False
+                    )
+                    logging.info(f"Hydration sync_dim_tokens_hydration_data_task 插入 fact_token_daily_stats: {token_id1}")
                 
                 # add yield stats
                 pool_address = asset_id
@@ -170,8 +273,9 @@ class Hydration:
                         ON DUPLICATE KEY UPDATE apy = VALUES(apy),
                         tvl_usd = VALUES(tvl_usd)
                         """,
-                        (token_id, return_type_id, pool_address, date, apy or 0, tvl or 0, tvl_usd or 0, created_at), use_remote=False
+                        (token_id, return_type_id, pool_address, date, apy or 0, tvl_usd or 0, tvl_usd or 0, created_at), use_remote=False
                     )
+                    logging.info(f"Hydration sync_dim_tokens_hydration_data_task 插入 fact_yield_stats: {token_id}")
                     fact_yield_stats_processed.add(fact_yield_stats_key)
 
                 processed.add(id)

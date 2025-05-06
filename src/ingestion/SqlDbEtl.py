@@ -27,6 +27,24 @@ class SQL_DB_ETL:
         """
         self.execute_sql(sql, use_remote=False)
 
+    # def execute_sql(self, query, params=None, fetch=False, use_remote=False):
+    #     cfg = self.remote_cfg if use_remote else self.local_cfg
+    #     cnx = mysql.connector.connect(**cfg)
+    #     cursor = cnx.cursor()
+    #     try:
+    #         if params:
+    #             cursor.execute(query, params)
+    #         else:
+    #             cursor.execute(query)
+    #         result = None
+    #         if fetch:
+    #             result = cursor.fetchall()
+    #         cnx.commit()
+    #         return result
+    #     finally:
+    #         cursor.close()
+    #         cnx.close()
+
     def execute_sql(self, query, params=None, fetch=False, use_remote=False):
         cfg = self.remote_cfg if use_remote else self.local_cfg
         cnx = mysql.connector.connect(**cfg)
@@ -36,15 +54,20 @@ class SQL_DB_ETL:
                 cursor.execute(query, params)
             else:
                 cursor.execute(query)
+
             result = None
             if fetch:
                 result = cursor.fetchall()
+            elif cursor.with_rows:
+                # 强制清空结果集，避免 "Unread result found"
+                cursor.fetchall()
+
             cnx.commit()
             return result
         finally:
             cursor.close()
             cnx.close()
-
+    
     def get_last_run(self, task_name):
         rows = self.execute_sql(
             "SELECT last_run FROM etl_control WHERE task_name=%s",
