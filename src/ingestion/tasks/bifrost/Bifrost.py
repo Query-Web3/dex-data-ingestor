@@ -116,7 +116,8 @@ class Bifrost:
                 """
                 INSERT INTO dim_tokens (chain_id,address,symbol,name,decimals,asset_type_id)
                 VALUES (%s,%s,%s,%s,%s,%s)
-                ON DUPLICATE KEY UPDATE updated_at=NOW()
+                ON DUPLICATE KEY UPDATE symbol=VALUES(symbol),name=VALUES(name),
+                decimals=VALUES(decimals),asset_type_id=VALUES(asset_type_id),updated_at=NOW()
                 """,
                 (chain_id, address, symbol, name, decimals, asset_type_id), use_remote=False
             ) 
@@ -129,38 +130,41 @@ class Bifrost:
             logging.info(f"[sync_dim_tokens_site] 获取 token_id: {token_id}")
 
             fact_token_daily_stats_key = (token_id, date)
-            if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
-                # 插入 fact_token_daily_stats
-                self.SqlDb.execute_sql(
-                    """
-                    INSERT INTO fact_token_daily_stats
-                    (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
-                    VALUES (%s, %s, 0, 0, 0, 0, %s)
-                    ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd)
-                    """,
-                    (token_id, date, created_at), use_remote=False
-                )
-                logging.info(f"[sync_dim_tokens_site] 插入 fact_token_daily_stats: {token_id}")
-                fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
-                count += 1
+            # if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+            # 插入 fact_token_daily_stats
+            self.SqlDb.execute_sql(
+                """
+                INSERT INTO fact_token_daily_stats
+                (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
+                VALUES (%s, %s, 0, 0, 0, 0, %s)
+                ON DUPLICATE KEY UPDATE volume = VALUES(volume),
+                volume_usd = VALUES(volume_usd),txns_count = VALUES(txns_count),
+                price_usd = VALUES(price_usd)
+                """,
+                (token_id, date, created_at), use_remote=False
+            )
+            logging.info(f"[sync_dim_tokens_site] 插入 fact_token_daily_stats: {token_id}")
+            fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+            count += 1
         
             pool_address = ""
             fact_yield_stats_key = (token_id, pool_address, date)
-            if fact_yield_stats_key not in fact_yield_stats_processed:
+            # if fact_yield_stats_key not in fact_yield_stats_processed:
             
-                # 插入 fact_yield_stats
-                self.SqlDb.execute_sql(
-                    """
-                    INSERT INTO fact_yield_stats
-                    (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
-                    """,
-                    (token_id, return_type_id, pool_address, date, apy or 0, tvl or 0, tvl or 0, created_at), use_remote=False
-                )
-                logging.info(f"[sync_dim_tokens_site] 插入 fact_yield_stats: {token_id}")
-                fact_yield_stats_processed.add(fact_yield_stats_key)
-                count1 += 1
+            # 插入 fact_yield_stats
+            self.SqlDb.execute_sql(
+                """
+                INSERT INTO fact_yield_stats
+                (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
+                """,
+                (token_id, return_type_id, pool_address, date, apy or 0, tvl or 0, tvl or 0, created_at), use_remote=False
+            )
+            logging.info(f"[sync_dim_tokens_site] 插入 fact_yield_stats: {token_id}")
+            fact_yield_stats_processed.add(fact_yield_stats_key)
+            count1 += 1
+        #endif
         return count + count1, end_time
 
     def sync_dim_tokens_apy_from_staking_task(self, last_run, end_time):
@@ -214,7 +218,8 @@ class Bifrost:
                 """
                 INSERT INTO dim_tokens (chain_id,address,symbol,name,decimals,asset_type_id)
                 VALUES (%s,%s,%s,%s,%s,%s)
-                ON DUPLICATE KEY UPDATE updated_at=NOW()
+                ON DUPLICATE KEY UPDATE symbol=VALUES(symbol),name=VALUES(name),
+                decimals=VALUES(decimals),asset_type_id=VALUES(asset_type_id),updated_at=NOW()
                 """,
                 (chain_id, symbol, symbol, symbol, decimals, asset_type_id), use_remote=False
             )
@@ -230,20 +235,21 @@ class Bifrost:
 
             fact_token_daily_stats_processed = set()
             fact_token_daily_stats_key = (token_id, date)
-            if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
-                # 插入 fact_token_daily_stats
-                self.SqlDb.execute_sql(
-                    """
-                    INSERT INTO fact_token_daily_stats
-                    (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
-                    VALUES (%s, %s, 0, 0, 0, %s, %s)
-                    ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume = VALUES(volume), volume_usd = VALUES(volume_usd), txns_count = VALUES(txns_count)
-                    """,
-                    (token_id, date, price, created_at), use_remote=False
-                )
-                logging.info(f"[sync_dim_tokens_staking] 插入 fact_token_daily_stats: {token_id}")
-                fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
-                count += 1
+            # if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+            # 插入 fact_token_daily_stats
+            self.SqlDb.execute_sql(
+                """
+                INSERT INTO fact_token_daily_stats
+                (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
+                VALUES (%s, %s, 0, 0, 0, %s, %s)
+                ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume = VALUES(volume), 
+                volume_usd = VALUES(volume_usd), txns_count = VALUES(txns_count)
+                """,
+                (token_id, date, price, created_at), use_remote=False
+            )
+            logging.info(f"[sync_dim_tokens_staking] 插入 fact_token_daily_stats: {token_id}")
+            fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+            count += 1
         
             pool_address = ""
             fact_yield_stats_processed = set()
@@ -266,7 +272,8 @@ class Bifrost:
                     INSERT INTO fact_yield_stats
                     (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE apy = VALUES(apy), tvl = VALUES(tvl), tvl_usd = VALUES(tvl_usd)
+                    ON DUPLICATE KEY UPDATE apy = VALUES(apy), tvl = VALUES(tvl), tvl_usd = VALUES(tvl_usd),
+                    return_type_id=VALUES(return_type_id)
                     """,
                     (token_id, return_type_id, pool_address, date, apy, tvl, tvl, created_at), use_remote=False
                 )

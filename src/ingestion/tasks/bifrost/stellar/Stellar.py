@@ -1,3 +1,4 @@
+from gzip import FEXTRA
 import logging;
 from datetime import timedelta
 from re import T
@@ -83,76 +84,78 @@ class Stellar:
                 logging.info(f"[sync_stellar_dim_tokens] 获取 token0_id: {tokenID0}")
                 
                 fact_token_daily_stats_key = (tokenID0, date)
-                if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+                # if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
 
-                    # 获取 yoy
-                    res = self.SqlDb.execute_sql("""
-                        SELECT volume, txns_count FROM fact_token_daily_stats 
-                        WHERE token_id = %s AND date = %s
-                    """, (tokenID0, prev_year))
-                    volume_year = None
-                    txns_count_year = None
-                    if res and len(res) > 0 and res[0][0] is not None :
-                        volume_year = res[0][0]
-                        txns_count_year = res[0][1]
+                # 获取 yoy
+                res = self.SqlDb.execute_sql("""
+                    SELECT volume, txns_count FROM fact_token_daily_stats 
+                    WHERE token_id = %s AND date = %s
+                """, (tokenID0, prev_year), fetch=True)
+                volume_year = None
+                txns_count_year = None
+                if res and len(res) > 0 and res[0][0] is not None :
+                    volume_year = res[0][0]
+                    txns_count_year = res[0][1]
 
-                    volume_yoy = calculate_yoy(volume_usd_current, volume_year)
-                    txns_count_yoy = calculate_yoy(tx_count, txns_count_year)
+                volume_yoy = calculate_yoy(volume_usd_current, volume_year)
+                txns_count_yoy = calculate_yoy(tx_count, txns_count_year)
                     
-                    # 获取 qoq
-                    res = self.SqlDb.execute_sql("""
-                        SELECT volume, txns_count FROM fact_token_daily_stats 
-                        WHERE token_id = %s AND date = %s
-                    """, (tokenID0, prev_quarter))
+                # 获取 qoq
+                res = self.SqlDb.execute_sql("""
+                    SELECT volume, txns_count FROM fact_token_daily_stats 
+                    WHERE token_id = %s AND date = %s
+                    """, (tokenID0, prev_quarter), fetch=True)
 
-                    volume_quarter = None
-                    txns_count_quarter = None
-                    if res and len(res) > 0 and res[0][0] is not None :
-                        volume_quarter = res[0][0]
-                        txns_count_quarter = res[0][1]
+                volume_quarter = None
+                txns_count_quarter = None
+                if res and len(res) > 0 and res[0][0] is not None :
+                    volume_quarter = res[0][0]
+                    txns_count_quarter = res[0][1]
 
-                    volume_qoq = None
-                    txns_count_qoq = None
-                    if res and len(res) > 0 and res[0][0] is not None :
-                        volume_qoq = calculate_qoq(volume_usd_current, volume_quarter)
-                        txns_count_qoq = calculate_qoq(tx_count, txns_count_quarter)
+                volume_qoq = None
+                txns_count_qoq = None
+                if res and len(res) > 0 and res[0][0] is not None :
+                    volume_qoq = calculate_qoq(volume_usd_current, volume_quarter)
+                    txns_count_qoq = calculate_qoq(tx_count, txns_count_quarter)
 
-                    # 插入 fact_token_daily_stars We 
-                    self.SqlDb.execute_sql(
-                        """
-                        INSERT INTO fact_token_daily_stats
-                        (token_id, date, volume, volume_usd, volume_yoy, volume_qoq, txns_count, txns_yoy, txns_qoq, price_usd, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume_usd = VALUES(volume_usd), 
+                # 插入 fact_token_daily_stars We 
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO fact_token_daily_stats
+                    (token_id, date, volume, volume_usd, volume_yoy, volume_qoq, txns_count, txns_yoy, txns_qoq, price_usd, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume_usd = VALUES(volume_usd), 
                         volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq), txns_count = VALUES(txns_count),
                         txns_yoy = VALUES(txns_yoy), txns_qoq = VALUES(txns_qoq), created_at = VALUES(created_at)
                         """,
                         (tokenID0, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_qoq, txns_count_qoq, 0, created_at), use_remote=False
                     )
-                    logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_token_daily_stats: {tokenID0}")
-                    fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
-                
+                logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_token_daily_stats: {tokenID0}")
+                fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+                ### endif
+
                 ## add to fact_yield_stats
                 fact_yield_stats_key = (tokenID0, token0_id, date)
-                if fact_yield_stats_key not in fact_yield_stats_processed:
+                #if fact_yield_stats_key not in fact_yield_stats_processed:
                 
-                    tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
-                   
-                    logging.info(f"Swap sync_stellar_dim_tokens_task TVL: {tvl}")
-                    
-                    # 插入 fact_yield_stats
-                    self.SqlDb.execute_sql(
-                        """
-                        INSERT INTO fact_yield_stats
-                        (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE apy = VALUES(apy), tvl = VALUES(tvl), tvl_usd = VALUES(tvl_usd)
-                        """,
-                        (tokenID0, return_type_id, pool_id, date, apy, tvl, tvl, created_at), use_remote=False
-                    )
-                    logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_yield_stats: {tokenID0}")
-                    fact_yield_stats_processed.add(fact_yield_stats_key)
+                tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
+               
+                logging.info(f"Swap sync_stellar_dim_tokens_task TVL: {tvl}")
                 
+                # 插入 fact_yield_stats
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO fact_yield_stats
+                    (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE return_type_id = VALUES(return_type_id),apy = VALUES(apy), tvl = VALUES(tvl), tvl_usd = VALUES(tvl_usd)
+                    """,
+                    (tokenID0, return_type_id, pool_id, date, apy, tvl, tvl, created_at), use_remote=False
+                )
+                logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_yield_stats: {tokenID0}")
+                fact_yield_stats_processed.add(fact_yield_stats_key)
+                #endif
+
                 processed.add(token0_id)
 
             ###########################################
@@ -181,7 +184,7 @@ class Stellar:
                 res = self.SqlDb.execute_sql("""
                     SELECT volume, txns_count FROM fact_token_daily_stats 
                     WHERE token_id = %s AND date = %s
-                """, (tokenID1, prev_year))
+                """, (tokenID1, prev_year), fetch=True)
                 volume_year = None
                 txns_count_year = None
                 if res and len(res) > 0 and res[0][0] is not None :
@@ -195,7 +198,7 @@ class Stellar:
                 res = self.SqlDb.execute_sql("""
                     SELECT volume, txns_count FROM fact_token_daily_stats 
                     WHERE token_id = %s AND date = %s
-                    """, (tokenID1, prev_quarter))
+                    """, (tokenID1, prev_quarter), fetch=True)
                 
 
                 volume_qoq = None
@@ -208,39 +211,40 @@ class Stellar:
                 txns_count_qoq = calculate_qoq(tx_count, txns_count_qoq)
 
                 fact_token_daily_stats_key = (tokenID1, date)
-                if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
-                    # 插入 fact_token_daily_stats
-                    self.SqlDb.execute_sql(
-                        """
-                        INSERT INTO fact_token_daily_stats
-                        (token_id, date, volume, volume_usd, volume_yoy, volume_qoq, txns_count, txns_yoy, txns_qoq, price_usd, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume_usd = VALUES(volume_usd),
-                        volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq), txns_count = VALUES(txns_count),
-                        txns_yoy = VALUES(txns_yoy),txns_qoq = VALUES(txns_qoq), created_at = VALUES(created_at)
-                        """,
-                        (tokenID1, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_yoy, txns_count_qoq, 0, created_at), use_remote=False
-                    )
-                    logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_token_daily_stats: {tokenID1}")
-                    fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
-                
+                # if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
+                # 插入 fact_token_daily_stats
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO fact_token_daily_stats
+                    (token_id, date, volume, volume_usd, volume_yoy, volume_qoq, txns_count, txns_yoy, txns_qoq, price_usd, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume_usd = VALUES(volume_usd),
+                    volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq), txns_count = VALUES(txns_count),
+                    txns_yoy = VALUES(txns_yoy),txns_qoq = VALUES(txns_qoq), created_at = VALUES(created_at)
+                    """,
+                    (tokenID1, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_yoy, txns_count_qoq, 0, created_at), use_remote=False
+                )
+                logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_token_daily_stats: {tokenID1}")
+                fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
+                ### endif
+
                 ## add to fact_yield_stats
                 fact_yield_stats_key = (tokenID1, token1_id, date)
-                if fact_yield_stats_key not in fact_yield_stats_processed:
+                # if fact_yield_stats_key not in fact_yield_stats_processed:
                 
-                    tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
-                    # 插入 fact_yield_stats
-                    self.SqlDb.execute_sql(
-                        """
-                        INSERT INTO fact_yield_stats
-                        (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
-                        """,
-                        (tokenID1, return_type_id, pool_id, date, apy, tvl, tvl, created_at), use_remote=False
-                    )
-                    logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_yield_stats: {tokenID1}")
-                    fact_yield_stats_processed.add(fact_yield_stats_key)
-                
+                tvl = calculate_tvl(amount_token0, amount_token1, sqrt_price, token0_decimals, token1_decimals)
+                # 插入 fact_yield_stats
+                self.SqlDb.execute_sql(
+                    """
+                    INSERT INTO fact_yield_stats
+                    (token_id, return_type_id, pool_address, date, apy, tvl, tvl_usd, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE return_type_id=VALUES(return_type_id),tvl = VALUES(tvl), apy = VALUES(apy), tvl_usd = VALUES(tvl_usd)
+                    """,
+                    (tokenID1, return_type_id, pool_id, date, apy, tvl, tvl, created_at), use_remote=False
+                )
+                logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_yield_stats: {tokenID1}")
+                fact_yield_stats_processed.add(fact_yield_stats_key)
+                ### endif
                 processed.add(token1_id)
         return len(processed), end_time
