@@ -1,6 +1,9 @@
 from decimal import Decimal, ROUND_HALF_UP,getcontext
-import logging
 from dateutil.relativedelta import relativedelta
+from decimal import Decimal, getcontext, ROUND_DOWN, InvalidOperation
+from typing import Optional, Tuple
+import logging
+
 
 # 设置精度
 getcontext().prec = 50
@@ -86,7 +89,7 @@ def last_quarter(date):
     if not date:
         return None
     # return date - relativedelta(months=3)    
-    return date - relativedelta(days=2)   
+    return date - relativedelta(days=14)   
 
 def last_year(date):
     print("year date：", date)
@@ -116,3 +119,53 @@ def calculate_qoq(current, previous_quarter):
     if current is None or previous_quarter is None or previous_quarter == 0:
         return None
     return round((float(current) - float(previous_quarter)) / float(previous_quarter) * 100, 2)
+
+
+
+# 设置高精度以支持 decimal(36,18)
+getcontext().prec = 50
+from decimal import Decimal, ROUND_DOWN, InvalidOperation
+from typing import Optional, Tuple
+
+def calculate_token_prices(
+    sqrt_price_x96: int,
+    token0_decimals: int,
+    token1_decimals: int,
+    token0_usd: Optional[Decimal] = None,
+    token1_usd: Optional[Decimal] = None
+) -> Tuple[Decimal, Decimal]:
+    Q96 = Decimal(2) ** 96
+    sqrt_price = Decimal(sqrt_price_x96) / Q96
+
+    # Uniswap V3 中 sqrt_price 是 token1/token0 的平方根
+    price_token1_per_token0 = sqrt_price ** 2
+
+    # 考虑精度调整（更稳健的写法）
+    if token0_decimals >= token1_decimals:
+        decimal_adjust = Decimal(10) ** (token0_decimals - token1_decimals)
+    else:
+        decimal_adjust = Decimal(1) / (Decimal(10) ** (token1_decimals - token0_decimals))
+    price_token1_per_token0 *= decimal_adjust
+
+    # 计算另一方价格
+    if token0_usd is not None:
+        token0_usd = Decimal(str(token0_usd))
+        token1_usd = token0_usd * price_token1_per_token0
+    elif token1_usd is not None:
+        token1_usd = Decimal(str(token1_usd))
+        token0_usd = token1_usd / price_token1_per_token0
+    else:
+        raise ValueError("必须提供 token0_usd 或 token1_usd 中的一个")
+
+    # 保留18位小数并处理异常
+    try:
+        token0_usd = token0_usd.quantize(Decimal('1.000000000000000000'), rounding=ROUND_DOWN)
+    except InvalidOperation:
+        token0_usd = Decimal('0')
+
+    try:
+        token1_usd = token1_usd.quantize(Decimal('1.000000000000000000'), rounding=ROUND_DOWN)
+    except InvalidOperation:
+        token1_usd = Decimal('0')
+
+    return token0_usd, token1_usd

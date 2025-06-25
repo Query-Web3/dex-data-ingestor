@@ -1,6 +1,7 @@
 import mysql.connector
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # 日志配置
 logging.basicConfig(
@@ -76,7 +77,7 @@ class SQL_DB_ETL:
         if rows and rows[0][0]:
             dt = rows[0][0]
             if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
+                return dt.replace(tzinfo=ZoneInfo("Asia/Hong_Kong"))
             return dt
         return None
 
@@ -94,7 +95,7 @@ class SQL_DB_ETL:
         - 调用 task_fn(last_run, end_time) 执行业务
         - 根据返回值更新 last_run
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(ZoneInfo("Asia/Hong_Kong"))
         end_time = now.replace(minute=0, second=0, microsecond=0)
         last_run = self.get_last_run(task_name)
 
@@ -102,7 +103,7 @@ class SQL_DB_ETL:
         count, new_last = task_fn(last_run, end_time)
 
         # 更新 last_run
-        if new_last and new_last > (last_run or datetime.min.replace(tzinfo=timezone.utc)):
+        if new_last and new_last > (last_run or datetime.min.replace(tzinfo=ZoneInfo("Asia/Hong_Kong"))):
             self.set_last_run(task_name, new_last)
             logging.info(f"[{task_name}] 处理 {count} 条，last_run 更新至 {new_last}")
         else:
@@ -119,7 +120,7 @@ class SQL_DB_ETL:
         count, new_last = task_fn(last_run, end_time)
 
         # 更新 last_run
-        if new_last and new_last > (last_run or datetime.min.replace(tzinfo=timezone.utc)):
+        if new_last and new_last > (last_run or datetime.min.replace(tzinfo=ZoneInfo("Asia/Hong_Kong"))):
             self.set_last_run(task_name, new_last)
             logging.info(f"[{task_name}] 处理 {count} 条，last_run 更新至 {new_last}")
         else:

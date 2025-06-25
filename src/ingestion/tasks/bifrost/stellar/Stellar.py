@@ -2,8 +2,9 @@ from gzip import FEXTRA
 import logging;
 from datetime import timedelta
 from re import T
+from decimal import Decimal
 from ingestion.SqlDbEtl import SQL_DB_ETL
-from utils.utils import calculate_tvl, calculate_yoy, calculate_qoq, last_year, last_quarter, prepare_apy_for_sql
+from utils.utils import calculate_tvl, calculate_yoy, calculate_qoq, last_year, last_quarter, prepare_apy_for_sql, calculate_token_prices
 
 class Stellar:
 
@@ -63,6 +64,21 @@ class Stellar:
             else:
                 apy = prepare_apy_for_sql(final_apr/100, 365)
             
+            ###### token0的price可以从hydration_price表中获取
+            rows = self.SqlDb.execute_sql(
+                """
+                SELECT p.price_usdt
+                FROM Hydration_price p
+                WHERE p.symbol=%s order by p.created_at desc limit 1
+                """,
+                (token0_symbol,), fetch=True, use_remote=True
+            )
+            token0_price = Decimal("1.0")
+            if rows and len(rows) > 0:
+                token0_price = Decimal(rows[0][0])
+            
+            # 计算双侧pool_token 价格，注意以token0为1的相对价格，后续需要补充真实价格
+            token0_price, token1_price = calculate_token_prices(sqrt_price, token0_decimals, token1_decimals, token0_price)
             # token0
             if token0_id and token0_id not in processed:
                 self.SqlDb.execute_sql(
@@ -128,7 +144,7 @@ class Stellar:
                         volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq), txns_count = VALUES(txns_count),
                         txns_yoy = VALUES(txns_yoy), txns_qoq = VALUES(txns_qoq), created_at = VALUES(created_at)
                         """,
-                        (tokenID0, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_qoq, txns_count_qoq, 0, created_at), use_remote=False
+                        (tokenID0, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_qoq, txns_count_qoq, token0_price, created_at), use_remote=False
                     )
                 logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_token_daily_stats: {tokenID0}")
                 fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
@@ -173,7 +189,7 @@ class Stellar:
                 )
                 logging.info(f"Swap sync_stellar_dim_tokens_task 插入或更新 dim_tokens: {token1_id}")
 
-                   # 获取 token0_id
+                   # 获取 token1_id
                 tokenID1 = self.SqlDb.execute_sql(
                     "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
                     (chain_id, token1_id), fetch=True, use_remote=False
@@ -222,7 +238,7 @@ class Stellar:
                     volume_yoy = VALUES(volume_yoy), volume_qoq = VALUES(volume_qoq), txns_count = VALUES(txns_count),
                     txns_yoy = VALUES(txns_yoy),txns_qoq = VALUES(txns_qoq), created_at = VALUES(created_at)
                     """,
-                    (tokenID1, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_yoy, txns_count_qoq, 0, created_at), use_remote=False
+                    (tokenID1, date, volume_usd_current, volume_usd_current, volume_yoy, volume_qoq, tx_count, txns_count_yoy, txns_count_qoq, token0_price, created_at), use_remote=False
                 )
                 logging.info(f"Swap sync_stellar_dim_tokens_task 插入 fact_token_daily_stats: {tokenID1}")
                 fact_token_daily_stats_processed.add(fact_token_daily_stats_key)

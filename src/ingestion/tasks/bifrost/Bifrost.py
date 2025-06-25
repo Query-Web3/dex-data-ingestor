@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 from ingestion.SqlDbEtl import SQL_DB_ETL
 from utils.utils import prepare_apy_for_sql
+from zoneinfo import ZoneInfo
 
 class Bifrost:
 
@@ -72,7 +73,7 @@ class Bifrost:
             last_run = row - timedelta(seconds=1)
         
         if not end_time:
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(ZoneInfo("Asia/Hong_Kong"))
         
         res = self.SqlDb.execute_sql(
             "SELECT chain_id FROM dim_chains WHERE name=%s",
@@ -121,13 +122,31 @@ class Bifrost:
                 """,
                 (chain_id, address, symbol, name, decimals, asset_type_id), use_remote=False
             ) 
-            logging.info(f"[sync_dim_tokens_site] 插入或更新 dim_tokens: {asset}")
+            logging.info(f"[sync_dim_tokens_site] 插入或更新 dim_tokens: {asset}, {chain_id}, {address}, {symbol}, {name}, {decimals}, {asset_type_id}")
             # 获取 token_id
             token_id = self.SqlDb.execute_sql(
                 "SELECT id FROM dim_tokens WHERE chain_id=%s AND address=%s",
                 (chain_id, address), fetch=True, use_remote=False
             )[0][0]
             logging.info(f"[sync_dim_tokens_site] 获取 token_id: {token_id}")
+
+            price_usdt = 0  
+
+            # 如果 symbol 以 v 开头，从 Hydration_price 表中获取 price_usdt,暂时注释掉，因为Bifrost_staking_table会覆盖
+            # if symbol.startswith("v"):
+            #     symbol = symbol[1:]
+            #     rows = self.SqlDb.execute_sql(
+            #         """
+            #         SELECT p.price_usdt
+            #         FROM Hydration_price p
+            #         WHERE p.symbol = %s AND p.created_at > %s AND p.created_at <= %s
+            #         """,
+            #         (symbol, last_run, end_time), fetch=True, use_remote=True
+            #     )
+            #     if rows and len(rows) > 0 and rows[0][0] is not None:
+            #         price_usdt = rows[0][0]
+            
+
 
             fact_token_daily_stats_key = (token_id, date)
             # if fact_token_daily_stats_key not in fact_token_daily_stats_processed:
@@ -136,12 +155,10 @@ class Bifrost:
                 """
                 INSERT INTO fact_token_daily_stats
                 (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
-                VALUES (%s, %s, 0, 0, 0, 0, %s)
-                ON DUPLICATE KEY UPDATE volume = VALUES(volume),
-                volume_usd = VALUES(volume_usd),txns_count = VALUES(txns_count),
-                price_usd = VALUES(price_usd)
+                VALUES (%s, %s, 0, 0, 0, %s, %s)
+                ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)
                 """,
-                (token_id, date, created_at), use_remote=False
+                (token_id, date, price_usdt, created_at), use_remote=False
             )
             logging.info(f"[sync_dim_tokens_site] 插入 fact_token_daily_stats: {token_id}")
             fact_token_daily_stats_processed.add(fact_token_daily_stats_key)
@@ -242,10 +259,9 @@ class Bifrost:
                 INSERT INTO fact_token_daily_stats
                 (token_id, date, volume, volume_usd, txns_count, price_usd, created_at)
                 VALUES (%s, %s, 0, 0, 0, %s, %s)
-                ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd), volume = VALUES(volume), 
-                volume_usd = VALUES(volume_usd), txns_count = VALUES(txns_count)
+                ON DUPLICATE KEY UPDATE price_usd = VALUES(price_usd)
                 """,
-                (token_id, date, price, created_at), use_remote=False
+                (token_id, date, price * exchangeRatio, created_at), use_remote=False
             )
             logging.info(f"[sync_dim_tokens_staking] 插入 fact_token_daily_stats: {token_id}")
             fact_token_daily_stats_processed.add(fact_token_daily_stats_key)

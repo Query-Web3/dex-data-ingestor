@@ -4,7 +4,8 @@ from ingestion.SqlDbEtl import SQL_DB_ETL
 from ingestion.tasks.bifrost.Bifrost import Bifrost
 from ingestion.tasks.bifrost.stellar.Stellar import Stellar
 from ingestion.tasks.hydration.Hydration import Hydration
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from config.MultiEnvDBConfig import MultiEnvDBConfig
 
 # 日志配置
@@ -28,9 +29,9 @@ if __name__ == "__main__":
     # }
     # sql_db = SQL_DB_ETL(local_config, remote_config)
 
-    # ten_days_ago = datetime.now(timezone.utc) - timedelta(days=10)
-    start_time = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    end_time = datetime.now(timezone.utc)
+    # ten_days_ago = datetime.now(ZoneInfo("Asia/Hong_Kong")) - timedelta(days=10)
+    start_time = datetime(2025, 5, 1, 0, 0, 0, tzinfo=ZoneInfo("Asia/Hong_Kong"))
+    end_time = datetime.now(ZoneInfo("Asia/Hong_Kong"))
 
     # 立即执行两次
     # logging.info("立即执行 sync_bifrost_to_fact_yield_stats_task")
@@ -40,26 +41,27 @@ if __name__ == "__main__":
     sql_db.etl_job(Bifrost(sql_db).sync_dim_tokens_apy_from_site_task, 'sync_dim_tokens_apy_from_site_task', start_time, end_time)
     logging.info("立即执行 sync_dim_tokens_apy_from_staking_task")
     sql_db.etl_job(Bifrost(sql_db).sync_dim_tokens_apy_from_staking_task, 'sync_dim_tokens_apy_from_staking_task', start_time, end_time)
+    logging.info("立即执行 sync_dim_tokens_hydration_data_task")
+    sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_data_task, 'sync_dim_tokens_hydration_data_task', start_time, end_time)
+    logging.info("立即执行 sync_dim_tokens_hydration_price_task")
+    sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_price_task, 'sync_dim_tokens_hydration_price_task', start_time, end_time)
     
     logging.info("立即执行 sync_stellar_dim_tokens_task")
     sql_db.etl_job(Stellar(sql_db).sync_stellar_dim_tokens_task, 'sync_stellar_dim_tokens_task', start_time, end_time)
     
-    logging.info("立即执行 sync_dim_tokens_hydration_price_task")
-    sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_price_task, 'sync_dim_tokens_hydration_price_task', start_time, end_time)
-    logging.info("立即执行 sync_dim_tokens_hydration_data_task")
-    sql_db.etl_job(Hydration(sql_db).sync_dim_tokens_hydration_data_task, 'sync_dim_tokens_hydration_data_task', start_time, end_time)
 
     # 定时调度
-    scheduler = BlockingScheduler(timezone="UTC")
+    scheduler = BlockingScheduler(timezone="Asia/Hong_Kong")
     # scheduler.add_job(sql_db.etl_job, 'cron', minute=0, args=[Bifrost(sql_db).sync_bifrost_to_fact_yield_stats_task, 'sync_bifrost_to_fact_yield_stats_task'])
     scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Bifrost(sql_db).sync_dim_tokens_apy_from_site_task, 'sync_dim_tokens_apy_from_site_task'])
     scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Bifrost(sql_db).sync_dim_tokens_apy_from_staking_task, 'sync_dim_tokens_apy_from_staking_task'])
     
+    scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Hydration(sql_db).sync_dim_tokens_hydration_data_task, 'sync_dim_tokens_hydration_data_task']) 
+    scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Hydration(sql_db).sync_dim_tokens_hydration_price_task, 'sync_dim_tokens_hydration_price_task'])
+    
     scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Stellar(sql_db).sync_stellar_dim_tokens_task, 'sync_stellar_dim_tokens_task'])
     
-    scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Hydration(sql_db).sync_dim_tokens_hydration_price_task, 'sync_dim_tokens_hydration_price_task'])
-    scheduler.add_job(sql_db.etl_job_till_now, 'cron', minute=0, args=[Hydration(sql_db).sync_dim_tokens_hydration_data_task, 'sync_dim_tokens_hydration_data_task']) 
-    
+
     logging.info("调度启动：每小时整点运行同步任务")
     scheduler.start()
     logging.info("************************ 调度完成 ************************");
